@@ -139,6 +139,37 @@ class EthereumMonitor(ChainMonitor):
         "0x62B9c7356A2Dc64a1969e19C23e4f579F9810Aa7": ("cvxCRV", "Convex CRV", 18, "Convex", "staking"),
     }
     
+    # ========== Pendle 代币 ==========
+    PENDLE_TOKENS = {
+        # PENDLE 治理代币
+        "0x808507121B80c02388fAd14726482e061B8da827": ("PENDLE", "Pendle", 18, "token"),
+        
+        # PT (Principal Tokens) - 2024/2025 到期
+        "0xc69Ad9baB1dEE23F4605a82b3354F8E40d1E5966": ("PT-weETH-26DEC2024", "PT weETH 26Dec2024", 18, "pt"),
+        "0x6ee2b5E19ECBa773a352E5B21415Dc419A700d1d": ("PT-weETH-27MAR2025", "PT weETH 27Mar2025", 18, "pt"),
+        "0xf7906F274c174A52d444175729E3fa98f9bde285": ("PT-eETH-26DEC2024", "PT eETH 26Dec2024", 18, "pt"),
+        "0x7fc0E461a4BeFF3D81606c9d0E03EC0351b3b6DC": ("PT-eETH-27MAR2025", "PT eETH 27Mar2025", 18, "pt"),
+        "0x1c085195437738d73d75DC64bC5A3E098b7f93b1": ("PT-stETH-26DEC2024", "PT stETH 26Dec2024", 18, "pt"),
+        "0x8e8539e29a158CDd19E267FD604C809A7C4aef36": ("PT-USDe-27MAR2025", "PT USDe 27Mar2025", 18, "pt"),
+        "0xa0ab94DeBB3cC9A7eA77f3205ba4AB23276feD08": ("PT-sUSDe-27MAR2025", "PT sUSDe 27Mar2025", 18, "pt"),
+        "0xb7b6f3CEe6c26B2670254aa08F1F7aFc2d1BD3FA": ("PT-rsETH-26DEC2024", "PT rsETH 26Dec2024", 18, "pt"),
+        "0xB05cABCd99cf9a73b19805edefC5f67CA5d1895E": ("PT-ezETH-26DEC2024", "PT ezETH 26Dec2024", 18, "pt"),
+        
+        # YT (Yield Tokens)
+        "0x129e6B5DBC0Ecc12F9e486C5BC9cDF1a6A80bc6A": ("YT-weETH-26DEC2024", "YT weETH 26Dec2024", 18, "yt"),
+        "0x9bB6E4a06f70c9CcA5b227c435c6D4B60F5A2577": ("YT-weETH-27MAR2025", "YT weETH 27Mar2025", 18, "yt"),
+        "0xfb35Fd0095dD1096b1Ca49AD44d8C5812A201677": ("YT-eETH-26DEC2024", "YT eETH 26Dec2024", 18, "yt"),
+        "0x258fD43Cd5A1b5837A04f93C6687dfC66B373bF8": ("YT-stETH-26DEC2024", "YT stETH 26Dec2024", 18, "yt"),
+        
+        # Pendle LP Tokens (SY-PT pools)
+        "0xD8F12bCDE578c653014F27379a6114F67F0e445f": ("LP-weETH-26DEC2024", "Pendle LP weETH 26Dec2024", 18, "lp"),
+        "0x952083cde7aaa11AB8449057F7de23A970AA8472": ("LP-weETH-27MAR2025", "Pendle LP weETH 27Mar2025", 18, "lp"),
+        "0x7d372819240D14fB477f17b964f95F33BeB4c704": ("LP-eETH-26DEC2024", "Pendle LP eETH 26Dec2024", 18, "lp"),
+        "0xF32e58F92e60f4b0A37A69b95d642A471365EAe8": ("LP-stETH-26DEC2024", "Pendle LP stETH 26Dec2024", 18, "lp"),
+        "0x2FCb47B58350cD377f94d3821e7373Df60bD9Ced": ("LP-USDe-27MAR2025", "Pendle LP USDe 27Mar2025", 18, "lp"),
+        "0xcDd26Eb5EB2Ce0f203a84553853667aE69Ca29Ce": ("LP-sUSDe-27MAR2025", "Pendle LP sUSDe 27Mar2025", 18, "lp"),
+    }
+    
     # ========== Aave V3 代币 ==========
     # 抵押品代币 (aTokens) - 存入资产获得
     AAVE_V3_ATOKENS = {
@@ -308,6 +339,47 @@ class EthereumMonitor(ChainMonitor):
                     await asyncio.sleep(self.api_delay)  # API 限流延迟
                 except Exception:
                     continue
+            
+            # ========== Pendle 代币 ==========
+            pendle_positions: Dict[str, List[TokenBalance]] = {
+                "pt": [], "yt": [], "lp": [], "token": []
+            }
+            
+            for token_addr, (symbol, name, decimals, pos_type) in self.PENDLE_TOKENS.items():
+                try:
+                    balance = await self.get_token_balance(session, address, token_addr, decimals)
+                    if balance > 0:
+                        token = TokenBalance(
+                            symbol=symbol,
+                            name=name,
+                            balance=balance,
+                            contract_address=token_addr,
+                            decimals=decimals,
+                            token_type=pos_type
+                        )
+                        pendle_positions[pos_type].append(token)
+                    await asyncio.sleep(self.api_delay)  # API 限流延迟
+                except Exception:
+                    continue
+            
+            # 创建 Pendle DeFi 仓位
+            if pendle_positions["pt"] or pendle_positions["yt"]:
+                defi_positions.append(DeFiPosition(
+                    protocol="Pendle",
+                    position_type="yield",
+                    tokens=pendle_positions["pt"] + pendle_positions["yt"]
+                ))
+            
+            if pendle_positions["lp"]:
+                defi_positions.append(DeFiPosition(
+                    protocol="Pendle",
+                    position_type="liquidity",
+                    tokens=pendle_positions["lp"]
+                ))
+            
+            # PENDLE 治理代币放到普通代币
+            for token in pendle_positions["token"]:
+                tokens.append(token)
             
             # 创建 Staking DeFi 仓位
             for key, tokens_list in staking_by_protocol.items():
@@ -535,6 +607,7 @@ class PriceService:
         "frxETH": "frax-ether", "sfrxETH": "staked-frax-ether",
         "eETH": "ether-fi-staked-eth", "weETH": "wrapped-eeth",
         "EIGEN": "eigenlayer", "ETHFI": "ether-fi",
+        "PENDLE": "pendle",
         "mSOL": "msol", "JitoSOL": "jito-staked-sol",
         "bSOL": "blazestake-staked-sol", "stSOL": "lido-staked-sol",
     }
@@ -742,7 +815,8 @@ class WalletMonitor:
                     # 其他 DeFi 仓位
                     type_emoji = {
                         "staking": "🥩", "lending": "🏛️",
-                        "liquidity": "💧", "farming": "🌾"
+                        "liquidity": "💧", "farming": "🌾",
+                        "yield": "📈"  # Pendle PT/YT
                     }.get(pos.position_type, "📊")
                     
                     usd = f" (${pos.total_usd_value:,.2f})" if pos.total_usd_value else ""
