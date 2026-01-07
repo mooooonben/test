@@ -5,7 +5,8 @@
 ## ✨ 功能特性
 
 - 🔗 支持多链监控：ETH、SOL、APT
-- 💰 实时获取钱包余额
+- 💰 实时获取钱包余额和代币余额
+- 🏦 **DeFi 仓位检测**：Lido、Aave、Compound、Curve、EtherFi 等
 - 💵 自动获取 USD 价格（通过 CoinGecko）
 - 📊 余额变化检测和提醒
 - 🔔 支持 Telegram 和 Discord 通知
@@ -13,17 +14,34 @@
 
 ## 📦 安装
 
-### 1. 克隆项目
+### 方式一：一键设置（推荐）
 
 ```bash
-git clone <your-repo-url>
-cd wallet-monitor
+git clone https://github.com/mooooonben/test.git
+cd test
+chmod +x setup.sh
+./setup.sh
 ```
 
-### 2. 安装依赖
+### 方式二：手动设置虚拟环境
 
 ```bash
+# 克隆项目
+git clone https://github.com/mooooonben/test.git
+cd test
+
+# 创建虚拟环境
+python3 -m venv venv
+
+# 激活虚拟环境
+source venv/bin/activate  # Linux/Mac
+# 或 venv\Scripts\activate  # Windows
+
+# 安装依赖
 pip install -r requirements.txt
+
+# 创建本地配置（不会被提交到 Git）
+cp config.yaml config.local.yaml
 ```
 
 ## ⚙️ 配置
