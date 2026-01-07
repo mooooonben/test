@@ -532,6 +532,185 @@ class SolanaMonitor(ChainMonitor):
         return native_balance, tokens, defi_positions
 
 
+class ArbitrumMonitor(ChainMonitor):
+    """Arbitrum 链监控 - 支持 Pendle 和其他 DeFi"""
+    
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.api_delay = config.get("api_delay", 0.1)
+    
+    # 常见代币
+    KNOWN_TOKENS = {
+        "0xFC5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a": ("GMX", "GMX", 18),
+        "0x912CE59144191C1204E64559FE8253a0e49E6548": ("ARB", "Arbitrum", 18),
+        "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1": ("WETH", "Wrapped Ether", 18),
+        "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8": ("USDC.e", "USD Coin (Bridged)", 6),
+        "0xaf88d065e77c8cC2239327C5EDb3A432268e5831": ("USDC", "USD Coin", 6),
+        "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9": ("USDT", "Tether USD", 6),
+        "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f": ("WBTC", "Wrapped BTC", 8),
+        "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1": ("DAI", "Dai Stablecoin", 18),
+    }
+    
+    # Pendle 相关代币 (Arbitrum)
+    PENDLE_TOKENS = {
+        # PENDLE 治理代币
+        "0x0c880f6761F1af8d9Aa9C466984b80DAb9a8c9e8": ("PENDLE", "Pendle", 18, "token"),
+        
+        # mPENDLE (Penpie 质押的 PENDLE)
+        "0xB688BA096b7Bb75d7841e47163Cd12D18B36A5bF": ("mPENDLE", "Penpie mPENDLE", 18, "staking"),
+        
+        # vePENDLE 相关
+        "0x3209E9412cca80B18338f2a56ADA59c484c39644": ("vePENDLE", "Vote-escrowed PENDLE", 18, "staking"),
+        
+        # PT tokens (Arbitrum)
+        "0x1c27Ad8a19Ba026ADaBD615F6Bc77158130cfBE4": ("PT-GLP-28MAR2024", "PT GLP 28Mar2024", 18, "pt"),
+        "0x96015D0Fb97139567a9ba675951816A0Bb719E3c": ("PT-wstETH-27JUN2024", "PT wstETH 27Jun2024", 18, "pt"),
+        "0x8EA5040d423410f1fdc363379Af88e1DB5eA1C34": ("PT-eETH-27JUN2024", "PT eETH 27Jun2024", 18, "pt"),
+        "0x045Bd1E697C26efE4aDb7e385540b65F4fAA21F6": ("PT-rsETH-27JUN2024", "PT rsETH 27Jun2024", 18, "pt"),
+        "0x7D24A2c72f8a615d6296DD6ee30A85Df67f0D2e2": ("PT-ezETH-27JUN2024", "PT ezETH 27Jun2024", 18, "pt"),
+        
+        # YT tokens (Arbitrum)
+        "0x6F03556C0c8c7b954f794FC7f82dB5f71e9a6550": ("YT-wstETH-27JUN2024", "YT wstETH 27Jun2024", 18, "yt"),
+        "0x05735b65686635f5c87834c3E7D30E864169f9E2": ("YT-eETH-27JUN2024", "YT eETH 27Jun2024", 18, "yt"),
+        
+        # Pendle LP tokens (Arbitrum)
+        "0xE11f9786B06438456b044B3E21712228ADcAA0D1": ("LP-wstETH-27JUN2024", "Pendle LP wstETH", 18, "lp"),
+        "0x952083cde7aaa11AB8449057F7de23A970AA8472": ("LP-eETH-27JUN2024", "Pendle LP eETH", 18, "lp"),
+    }
+    
+    # Penpie / Magpie 相关
+    PENPIE_TOKENS = {
+        "0x4Bfe9D132A4Cc3Fe13F27AD1E8e4f8f7E8D9Da2d": ("PNP", "Penpie", 18, "token"),
+        "0xB688BA096b7Bb75d7841e47163Cd12D18B36A5bF": ("mPENDLE", "mPENDLE", 18, "staking"),
+    }
+    
+    @property
+    def chain_name(self) -> str:
+        return "Arbitrum"
+    
+    @property
+    def symbol(self) -> str:
+        return "ETH"
+    
+    async def get_native_balance(self, session: aiohttp.ClientSession, address: str) -> float:
+        """获取 ETH 余额"""
+        rpc_url = self.config.get("rpc_url", "https://arb1.arbitrum.io/rpc")
+        
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_getBalance",
+            "params": [address, "latest"],
+            "id": 1
+        }
+        
+        async with session.post(rpc_url, json=payload) as response:
+            data = await response.json()
+            if "result" in data:
+                balance_wei = int(data["result"], 16)
+                return balance_wei / 1e18
+            return 0.0
+    
+    async def get_token_balance(self, session: aiohttp.ClientSession, 
+                                 address: str, token_address: str, 
+                                 decimals: int) -> float:
+        """获取 ERC-20 代币余额"""
+        rpc_url = self.config.get("rpc_url", "https://arb1.arbitrum.io/rpc")
+        
+        data = f"0x70a08231000000000000000000000000{address[2:].lower()}"
+        
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{"to": token_address, "data": data}, "latest"],
+            "id": 1
+        }
+        
+        try:
+            async with session.post(rpc_url, json=payload) as response:
+                result = await response.json()
+                if "result" in result and result["result"] not in ["0x", "0x0"]:
+                    balance = int(result["result"], 16)
+                    return balance / (10 ** decimals)
+        except Exception:
+            pass
+        return 0.0
+    
+    async def get_balance(self, address: str) -> Tuple[float, List[TokenBalance], List[DeFiPosition]]:
+        """获取 Arbitrum 资产"""
+        tokens = []
+        defi_positions = []
+        pendle_positions: Dict[str, List[TokenBalance]] = {
+            "pt": [], "yt": [], "lp": [], "token": [], "staking": []
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            # 获取 ETH 余额
+            native_balance = await self.get_native_balance(session, address)
+            
+            # 获取常见代币余额
+            for token_addr, (symbol, name, decimals) in self.KNOWN_TOKENS.items():
+                try:
+                    balance = await self.get_token_balance(session, address, token_addr, decimals)
+                    if balance > 0:
+                        tokens.append(TokenBalance(
+                            symbol=symbol,
+                            name=name,
+                            balance=balance,
+                            contract_address=token_addr,
+                            decimals=decimals,
+                            token_type="token"
+                        ))
+                    await asyncio.sleep(self.api_delay)
+                except Exception:
+                    continue
+            
+            # 获取 Pendle 代币
+            for token_addr, (symbol, name, decimals, pos_type) in self.PENDLE_TOKENS.items():
+                try:
+                    balance = await self.get_token_balance(session, address, token_addr, decimals)
+                    if balance > 0:
+                        token = TokenBalance(
+                            symbol=symbol,
+                            name=name,
+                            balance=balance,
+                            contract_address=token_addr,
+                            decimals=decimals,
+                            token_type=pos_type
+                        )
+                        pendle_positions[pos_type].append(token)
+                    await asyncio.sleep(self.api_delay)
+                except Exception:
+                    continue
+            
+            # 创建 Pendle DeFi 仓位
+            if pendle_positions["pt"] or pendle_positions["yt"]:
+                defi_positions.append(DeFiPosition(
+                    protocol="Pendle",
+                    position_type="yield",
+                    tokens=pendle_positions["pt"] + pendle_positions["yt"]
+                ))
+            
+            if pendle_positions["lp"]:
+                defi_positions.append(DeFiPosition(
+                    protocol="Pendle",
+                    position_type="liquidity",
+                    tokens=pendle_positions["lp"]
+                ))
+            
+            if pendle_positions["staking"]:
+                defi_positions.append(DeFiPosition(
+                    protocol="Penpie",
+                    position_type="staking",
+                    tokens=pendle_positions["staking"]
+                ))
+            
+            # PENDLE 治理代币
+            for token in pendle_positions["token"]:
+                tokens.append(token)
+        
+        return native_balance, tokens, defi_positions
+
+
 class AptosMonitor(ChainMonitor):
     """Aptos 链监控"""
     
@@ -607,7 +786,8 @@ class PriceService:
         "frxETH": "frax-ether", "sfrxETH": "staked-frax-ether",
         "eETH": "ether-fi-staked-eth", "weETH": "wrapped-eeth",
         "EIGEN": "eigenlayer", "ETHFI": "ether-fi",
-        "PENDLE": "pendle",
+        "PENDLE": "pendle", "mPENDLE": "pendle",  # mPENDLE 价格约等于 PENDLE
+        "ARB": "arbitrum", "GMX": "gmx",
         "mSOL": "msol", "JitoSOL": "jito-staked-sol",
         "bSOL": "blazestake-staked-sol", "stSOL": "lido-staked-sol",
     }
@@ -668,6 +848,10 @@ class WalletMonitor:
             sol_config = self.config["solana"].copy()
             sol_config["api_delay"] = api_delay
             self.monitors["solana"] = SolanaMonitor(sol_config)
+        if "arbitrum" in self.config:
+            arb_config = self.config["arbitrum"].copy()
+            arb_config["api_delay"] = api_delay
+            self.monitors["arbitrum"] = ArbitrumMonitor(arb_config)
         if "aptos" in self.config:
             apt_config = self.config["aptos"].copy()
             apt_config["api_delay"] = api_delay

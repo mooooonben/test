@@ -34,6 +34,16 @@ solana:
       name: "SOL钱包2"
     # 添加更多钱包...
 
+# Arbitrum 配置
+arbitrum:
+  # RPC 节点
+  rpc_url: "https://arb1.arbitrum.io/rpc"
+  # 要监控的钱包地址列表
+  wallets:
+    - address: "0x0000000000000000000000000000000000000001"
+      name: "ARB钱包1"
+    # 添加更多钱包...
+
 # Aptos 配置
 aptos:
   # API 节点
