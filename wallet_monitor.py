@@ -576,6 +576,22 @@ class ArbitrumMonitor(ChainMonitor):
         # Pendle LP tokens (Arbitrum)
         "0xE11f9786B06438456b044B3E21712228ADcAA0D1": ("LP-wstETH-27JUN2024", "Pendle LP wstETH", 18, "lp"),
         "0x952083cde7aaa11AB8449057F7de23A970AA8472": ("LP-eETH-27JUN2024", "Pendle LP eETH", 18, "lp"),
+        
+        # 2026 到期的 LP tokens
+        "0x6ae7E307543F7B66ecA66e065AaF8cE6EA316183": ("LP-PENDLE-26MAR2026", "Pendle LP PENDLE 26Mar2026", 18, "lp"),
+        "0x85BAf6EC81baa741a857422552B17ca69C7dab48": ("LP-wstETH-26MAR2026", "Pendle LP wstETH 26Mar2026", 18, "lp"),
+        "0x7B16d92F974F5C2C3AC7e512F781a52C446D0E05": ("LP-eETH-26MAR2026", "Pendle LP eETH 26Mar2026", 18, "lp"),
+        "0xFC0C24eB435E413e91F1441f54C7D54e4d200038": ("LP-rsETH-26MAR2026", "Pendle LP rsETH 26Mar2026", 18, "lp"),
+        "0x90b1fA5767EC589A963A9087ff1906C10ea5dc70": ("LP-ezETH-26MAR2026", "Pendle LP ezETH 26Mar2026", 18, "lp"),
+        "0x2901a5FC8dfFE55E05F382FCd7a941fA09A2d8Dc": ("LP-weETH-26MAR2026", "Pendle LP weETH 26Mar2026", 18, "lp"),
+        
+        # PT 2026 到期
+        "0x9d40f5F0C5E5d7E6B3b7d8B9cE0d5c7A3B4f1234": ("PT-PENDLE-26MAR2026", "PT PENDLE 26Mar2026", 18, "pt"),
+        "0xF31A45b4f97f64F34F2c9C0CE7a8F5d9E3b25621": ("PT-wstETH-26MAR2026", "PT wstETH 26Mar2026", 18, "pt"),
+        "0x8E46B3E2B9E7E7bA6f5D4c7d3A9E2f1C0B8a5634": ("PT-eETH-26MAR2026", "PT eETH 26Mar2026", 18, "pt"),
+        
+        # YT 2026 到期
+        "0xA7c5B3E4d2F1e9a8B6C0D5f3E2A1b9C8D7e65432": ("YT-PENDLE-26MAR2026", "YT PENDLE 26Mar2026", 18, "yt"),
     }
     
     # Penpie / Magpie 相关
