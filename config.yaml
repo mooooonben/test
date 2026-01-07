@@ -12,14 +12,11 @@ ethereum:
   rpc_url: "https://eth.llamarpc.com"
   # 要监控的钱包地址列表
   wallets:
-    - address: "0xFA494A7CfF881853De5F0f482458072649858a94"
+    - address: "0x0000000000000000000000000000000000000001"
       name: "ETH钱包1"
-    - address: "0x196297C88A55BE6Ad0df4D373C0259a504dE1092"
+    - address: "0x0000000000000000000000000000000000000002"
       name: "ETH钱包2"
-    - address: "0x9BF6394Ac487Db3caC86D16d42A1bcFb33b13F06"
-      name: "ETH钱包3"
-    - address: "0xB614871E1dF954118D617309b72CF2b3A01F3E44"
-      name: "ETH钱包4"
+    # 添加更多钱包...
 
 # Solana 配置
 solana:
@@ -27,14 +24,11 @@ solana:
   rpc_url: "https://api.mainnet-beta.solana.com"
   # 要监控的钱包地址列表
   wallets:
-    - address: "FbbkfhPhf58PbJ8WEzYZrUsuyNYRTvFe7HgUMWT9uUPW"
+    - address: "11111111111111111111111111111111"
       name: "SOL钱包1"
-    - address: "5piyWdjT7cuLq2Nzuy4ytwrvkdYgQQh9MXJcgWAtQZKo"
+    - address: "22222222222222222222222222222222"
       name: "SOL钱包2"
-    - address: "F2YARG1HbqCWtyLpe1GvQA7pSYBt7F3Q2sGG2Ptd6vbe"
-      name: "SOL钱包3"
-    - address: "B4aCxEuFnoQ9YS87rHTprDpAUh3MprH9k2qXkBRA3AJx"
-      name: "SOL钱包4"
+    # 添加更多钱包...
 
 # Aptos 配置
 aptos:
@@ -42,12 +36,9 @@ aptos:
   api_url: "https://fullnode.mainnet.aptoslabs.com/v1"
   # 要监控的钱包地址列表
   wallets:
-    - address: "0xcc00a20bf9ffb43f4f83b4fb4022230c552089b5359ba5811c0dcc899a837cec"
+    - address: "0x0000000000000000000000000000000000000000000000000000000000000001"
       name: "APT钱包1"
-    - address: "0xf0bb4fd113af29b6e0e0f1c108131c5689a912a87f58ecc98bb1b3fdc2a2ae97"
-      name: "APT钱包2"
-    - address: "0xf60dbbfc18dccdd7cbd0339025aa938f0bd401fa0680e8816a8cbc9801b2076d"
-      name: "APT钱包3"
+    # 添加更多钱包...
 
 # 通知配置（可选）
 notifications:
