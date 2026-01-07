@@ -94,6 +94,10 @@ class ChainMonitor(ABC):
 class EthereumMonitor(ChainMonitor):
     """Ethereum 链监控 - 支持 ERC-20 代币和 DeFi（含借贷详情）"""
     
+    def __init__(self, config: dict):
+        super().__init__(config)
+        self.api_delay = config.get("api_delay", 0.1)  # 默认 100ms 延迟
+    
     # 常见 ERC-20 代币
     KNOWN_TOKENS = {
         "0xdAC17F958D2ee523a2206206994597C13D831ec7": ("USDT", "Tether USD", 6),
@@ -242,6 +246,7 @@ class EthereumMonitor(ChainMonitor):
                             decimals=decimals,
                             token_type="token"
                         ))
+                    await asyncio.sleep(self.api_delay)  # API 限流延迟
                 except Exception:
                     continue
             
@@ -262,6 +267,7 @@ class EthereumMonitor(ChainMonitor):
                         if key not in staking_by_protocol:
                             staking_by_protocol[key] = []
                         staking_by_protocol[key].append(token)
+                    await asyncio.sleep(self.api_delay)  # API 限流延迟
                 except Exception:
                     continue
             
@@ -278,6 +284,7 @@ class EthereumMonitor(ChainMonitor):
                             decimals=decimals,
                             token_type="collateral"
                         ))
+                    await asyncio.sleep(self.api_delay)  # API 限流延迟
                 except Exception:
                     continue
             
@@ -294,6 +301,7 @@ class EthereumMonitor(ChainMonitor):
                             decimals=decimals,
                             token_type="debt"
                         ))
+                    await asyncio.sleep(self.api_delay)  # API 限流延迟
                 except Exception:
                     continue
             
@@ -571,12 +579,21 @@ class WalletMonitor:
             return yaml.safe_load(f)
     
     def _init_monitors(self):
+        # 获取全局 API 延迟配置
+        api_delay = self.config.get("api_delay", 0.1)
+        
         if "ethereum" in self.config:
-            self.monitors["ethereum"] = EthereumMonitor(self.config["ethereum"])
+            eth_config = self.config["ethereum"].copy()
+            eth_config["api_delay"] = api_delay
+            self.monitors["ethereum"] = EthereumMonitor(eth_config)
         if "solana" in self.config:
-            self.monitors["solana"] = SolanaMonitor(self.config["solana"])
+            sol_config = self.config["solana"].copy()
+            sol_config["api_delay"] = api_delay
+            self.monitors["solana"] = SolanaMonitor(sol_config)
         if "aptos" in self.config:
-            self.monitors["aptos"] = AptosMonitor(self.config["aptos"])
+            apt_config = self.config["aptos"].copy()
+            apt_config["api_delay"] = api_delay
+            self.monitors["aptos"] = AptosMonitor(apt_config)
     
     async def check_balance(self, chain: str, wallet: dict) -> Optional[WalletBalance]:
         monitor = self.monitors.get(chain)

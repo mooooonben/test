@@ -1,7 +1,10 @@
 # 钱包余额监控配置文件
 
-# 监控间隔（秒）
-monitor_interval: 60
+# 监控间隔（秒）- 两次完整检查之间的间隔
+monitor_interval: 300  # 建议 300 秒 (5分钟) 或更长
+
+# API 请求延迟（秒）- 每个代币查询之间的延迟，防止触发限流
+api_delay: 0.2  # 200毫秒，可根据需要调整
 
 # 余额变化提醒阈值（百分比）
 alert_threshold_percent: 5
@@ -9,6 +12,7 @@ alert_threshold_percent: 5
 # Ethereum 配置
 ethereum:
   # RPC 节点 (可以使用 Infura, Alchemy 等)
+  # 建议使用自己的 API Key 以获得更高的请求限额
   rpc_url: "https://eth.llamarpc.com"
   # 要监控的钱包地址列表
   wallets:
