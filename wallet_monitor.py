@@ -2,7 +2,7 @@
 """
 多链钱包余额监控工具
 支持 Ethereum (ETH), Solana (SOL), Aptos (APT)
-包括原生代币、其他代币和 DeFi 仓位
+包括原生代币、其他代币和 DeFi 仓位（含借贷详情）
 """
 
 import asyncio
@@ -27,7 +27,19 @@ class TokenBalance:
     decimals: int = 18
     usd_value: Optional[float] = None
     logo_url: Optional[str] = None
-    token_type: str = "token"  # token, lp, staking, lending, nft
+    token_type: str = "token"  # token, lp, staking, lending, collateral, debt
+
+
+@dataclass 
+class LendingPosition:
+    """借贷仓位详情"""
+    protocol: str
+    supplied: List[TokenBalance] = field(default_factory=list)  # 存入/抵押
+    borrowed: List[TokenBalance] = field(default_factory=list)  # 借出/债务
+    total_supplied_usd: float = 0.0
+    total_borrowed_usd: float = 0.0
+    health_factor: Optional[float] = None
+    net_worth_usd: float = 0.0
 
 
 @dataclass 
@@ -35,10 +47,10 @@ class DeFiPosition:
     """DeFi 仓位数据类"""
     protocol: str
     position_type: str  # staking, lending, liquidity, farming
-    tokens: List[TokenBalance]
+    tokens: List[TokenBalance] = field(default_factory=list)
     total_usd_value: Optional[float] = None
     apy: Optional[float] = None
-    health_factor: Optional[float] = None  # 用于借贷协议
+    lending_details: Optional[LendingPosition] = None  # 借贷详情
 
 
 @dataclass
@@ -80,9 +92,9 @@ class ChainMonitor(ABC):
 
 
 class EthereumMonitor(ChainMonitor):
-    """Ethereum 链监控 - 支持 ERC-20 代币和 DeFi"""
+    """Ethereum 链监控 - 支持 ERC-20 代币和 DeFi（含借贷详情）"""
     
-    # 常见 ERC-20 代币合约地址和信息
+    # 常见 ERC-20 代币
     KNOWN_TOKENS = {
         "0xdAC17F958D2ee523a2206206994597C13D831ec7": ("USDT", "Tether USD", 6),
         "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48": ("USDC", "USD Coin", 6),
@@ -98,8 +110,8 @@ class EthereumMonitor(ChainMonitor):
         "0x4d224452801ACEd8B2F0aebE155379bb5D594381": ("APE", "ApeCoin", 18),
     }
     
-    # DeFi 相关代币 (质押/LP/借贷凭证)
-    DEFI_TOKENS = {
+    # Staking 代币 (Lido, Rocket Pool, etc.)
+    STAKING_TOKENS = {
         # Lido
         "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84": ("stETH", "Lido Staked ETH", 18, "Lido", "staking"),
         "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0": ("wstETH", "Wrapped stETH", 18, "Lido", "staking"),
@@ -110,20 +122,46 @@ class EthereumMonitor(ChainMonitor):
         # Frax
         "0x5E8422345238F34275888049021821E8E08CAa1f": ("frxETH", "Frax Ether", 18, "Frax", "staking"),
         "0xac3E018457B222d93114458476f3E3416Abbe38F": ("sfrxETH", "Staked Frax Ether", 18, "Frax", "staking"),
-        # Aave aTokens (v3)
-        "0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8": ("aEthWETH", "Aave Ethereum WETH", 18, "Aave V3", "lending"),
-        "0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c": ("aEthUSDC", "Aave Ethereum USDC", 6, "Aave V3", "lending"),
-        "0x23878914EFE38d27C4D67Ab83ed1b93A74D4086a": ("aEthUSDT", "Aave Ethereum USDT", 6, "Aave V3", "lending"),
-        # Compound cTokens
-        "0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5": ("cETH", "Compound Ether", 8, "Compound", "lending"),
-        "0x39AA39c021dfbaE8faC545936693aC917d5E7563": ("cUSDC", "Compound USD Coin", 8, "Compound", "lending"),
-        # Curve LP tokens
+        # EtherFi
+        "0xEC53bF9167f50cDEB3Ae105f56099aaaB9061F83": ("eETH", "ether.fi Staked ETH", 18, "EtherFi", "staking"),
+        "0xFe0c30065B384F05761f15d0CC899D4F9F9Cc0eB": ("weETH", "Wrapped eETH", 18, "EtherFi", "staking"),
+        # Curve LP
         "0x06325440D014e39736583c165C2963BA99fAf14E": ("steCRV", "Curve stETH/ETH LP", 18, "Curve", "liquidity"),
         # Convex
         "0x62B9c7356A2Dc64a1969e19C23e4f579F9810Aa7": ("cvxCRV", "Convex CRV", 18, "Convex", "staking"),
-        # EigenLayer
-        "0xEC53bF9167f50cDEB3Ae105f56099aaaB9061F83": ("eETH", "ether.fi Staked ETH", 18, "EtherFi", "staking"),
-        "0xFe0c30065B384F05761f15d0CC899D4F9F9Cc0eB": ("weETH", "Wrapped eETH", 18, "EtherFi", "staking"),
+    }
+    
+    # ========== Aave V3 代币 ==========
+    # 抵押品代币 (aTokens) - 存入资产获得
+    AAVE_V3_ATOKENS = {
+        "0x4d5F47FA6A74757f35C14fD3a6Ef8E3C9BC514E8": ("aEthWETH", "Aave ETH WETH", 18, "WETH"),
+        "0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c": ("aEthUSDC", "Aave ETH USDC", 6, "USDC"),
+        "0x23878914EFE38d27C4D67Ab83ed1b93A74D4086a": ("aEthUSDT", "Aave ETH USDT", 6, "USDT"),
+        "0x018008bfb33d285247A21d44E50697654f754e63": ("aEthDAI", "Aave ETH DAI", 18, "DAI"),
+        "0x5Ee5bf7ae06D1Be5997A1A72006FE6C607eC6DE8": ("aEthWBTC", "Aave ETH WBTC", 8, "WBTC"),
+        "0x0B925eD163218f6662a35e0f0371Ac234f9E9371": ("aEthwstETH", "Aave ETH wstETH", 18, "wstETH"),
+        "0xBdfa7b7893081B35Fb54027489e2Bc7A38275129": ("aEthweETH", "Aave ETH weETH", 18, "weETH"),
+        "0x7B95Ec873268a6BFC6427e7a28e396Db9D0ebc65": ("aEthrETH", "Aave ETH rETH", 18, "rETH"),
+        "0xA700b4eB416Be35b2911fd5Dee80678ff64fF6C9": ("aEthLINK", "Aave ETH LINK", 18, "LINK"),
+        "0xF6D2224916DDFbbab6e6bd0D1B7034f4Ae0CaB18": ("aEthAAVE", "Aave ETH AAVE", 18, "AAVE"),
+    }
+    
+    # 债务代币 (Variable Debt Tokens) - 借款产生
+    AAVE_V3_DEBT_TOKENS = {
+        "0xeA51d7853EEFb32b6ee06b1C12E6dcCA88Be0fFE": ("vDebtWETH", "Aave Variable Debt WETH", 18, "WETH"),
+        "0x72E95b8931767C79bA4EeE721354d6E99a61D004": ("vDebtUSDC", "Aave Variable Debt USDC", 6, "USDC"),
+        "0x6df1C1E379bC5a00a7b4C6e67A203333772f45A8": ("vDebtUSDT", "Aave Variable Debt USDT", 6, "USDT"),
+        "0xcF8d0c70c850859266f5C338b38F9D663181C314": ("vDebtDAI", "Aave Variable Debt DAI", 18, "DAI"),
+        "0x40aAbEf1aa8f0eEc637E0E7d92fbfFB2F26A8b7B": ("vDebtWBTC", "Aave Variable Debt WBTC", 8, "WBTC"),
+        "0xD5c3E3B566f73AA6A62a1a349BB5370a21b4c5C0": ("vDebtwstETH", "Aave Variable Debt wstETH", 18, "wstETH"),
+        "0xeEDaE28f271F1df4B67a69E94fA69CCec5676b96": ("vDebtweETH", "Aave Variable Debt weETH", 18, "weETH"),
+        "0x64b761D848206f447Fe2dd461b0c635Ec39EbB27": ("vDebtLINK", "Aave Variable Debt LINK", 18, "LINK"),
+    }
+    
+    # Compound V3 (Comet)
+    COMPOUND_V3_TOKENS = {
+        "0xc3d688B66703497DAA19211EEdff47f25384cdc3": ("cUSDCv3", "Compound USDC", 6, "Compound V3"),
+        "0xA17581A9E3356d9A858b789D68B4d866e593aE94": ("cWETHv3", "Compound WETH", 18, "Compound V3"),
     }
     
     @property
@@ -158,7 +196,6 @@ class EthereumMonitor(ChainMonitor):
         """获取单个 ERC-20 代币余额"""
         rpc_url = self.config.get("rpc_url", "https://eth.llamarpc.com")
         
-        # ERC-20 balanceOf 函数签名
         data = f"0x70a08231000000000000000000000000{address[2:].lower()}"
         
         payload = {
@@ -182,7 +219,11 @@ class EthereumMonitor(ChainMonitor):
         """获取 ETH、ERC-20 代币和 DeFi 仓位"""
         tokens = []
         defi_positions = []
-        defi_by_protocol: Dict[str, List[TokenBalance]] = {}
+        staking_by_protocol: Dict[str, List[TokenBalance]] = {}
+        
+        # Aave 借贷详情
+        aave_supplied: List[TokenBalance] = []
+        aave_borrowed: List[TokenBalance] = []
         
         async with aiohttp.ClientSession() as session:
             # 获取 ETH 余额
@@ -204,8 +245,8 @@ class EthereumMonitor(ChainMonitor):
                 except Exception:
                     continue
             
-            # 获取 DeFi 相关代币余额
-            for token_addr, (symbol, name, decimals, protocol, pos_type) in self.DEFI_TOKENS.items():
+            # 获取 Staking 代币余额
+            for token_addr, (symbol, name, decimals, protocol, pos_type) in self.STAKING_TOKENS.items():
                 try:
                     balance = await self.get_token_balance(session, address, token_addr, decimals)
                     if balance > 0:
@@ -217,22 +258,66 @@ class EthereumMonitor(ChainMonitor):
                             decimals=decimals,
                             token_type=pos_type
                         )
-                        
-                        # 按协议分组
                         key = f"{protocol}|{pos_type}"
-                        if key not in defi_by_protocol:
-                            defi_by_protocol[key] = []
-                        defi_by_protocol[key].append(token)
+                        if key not in staking_by_protocol:
+                            staking_by_protocol[key] = []
+                        staking_by_protocol[key].append(token)
                 except Exception:
                     continue
             
-            # 创建 DeFi 仓位
-            for key, tokens_list in defi_by_protocol.items():
+            # ========== Aave V3 抵押品 (aTokens) ==========
+            for token_addr, (symbol, name, decimals, underlying) in self.AAVE_V3_ATOKENS.items():
+                try:
+                    balance = await self.get_token_balance(session, address, token_addr, decimals)
+                    if balance > 0:
+                        aave_supplied.append(TokenBalance(
+                            symbol=underlying,  # 显示底层资产符号
+                            name=f"Aave 抵押 {underlying}",
+                            balance=balance,
+                            contract_address=token_addr,
+                            decimals=decimals,
+                            token_type="collateral"
+                        ))
+                except Exception:
+                    continue
+            
+            # ========== Aave V3 债务 (Variable Debt Tokens) ==========
+            for token_addr, (symbol, name, decimals, underlying) in self.AAVE_V3_DEBT_TOKENS.items():
+                try:
+                    balance = await self.get_token_balance(session, address, token_addr, decimals)
+                    if balance > 0:
+                        aave_borrowed.append(TokenBalance(
+                            symbol=underlying,  # 显示底层资产符号
+                            name=f"Aave 债务 {underlying}",
+                            balance=balance,
+                            contract_address=token_addr,
+                            decimals=decimals,
+                            token_type="debt"
+                        ))
+                except Exception:
+                    continue
+            
+            # 创建 Staking DeFi 仓位
+            for key, tokens_list in staking_by_protocol.items():
                 protocol, pos_type = key.split("|")
                 defi_positions.append(DeFiPosition(
                     protocol=protocol,
                     position_type=pos_type,
                     tokens=tokens_list
+                ))
+            
+            # 创建 Aave 借贷仓位
+            if aave_supplied or aave_borrowed:
+                lending_details = LendingPosition(
+                    protocol="Aave V3",
+                    supplied=aave_supplied,
+                    borrowed=aave_borrowed
+                )
+                defi_positions.append(DeFiPosition(
+                    protocol="Aave V3",
+                    position_type="lending",
+                    tokens=aave_supplied + aave_borrowed,
+                    lending_details=lending_details
                 ))
         
         return native_balance, tokens, defi_positions
@@ -241,28 +326,18 @@ class EthereumMonitor(ChainMonitor):
 class SolanaMonitor(ChainMonitor):
     """Solana 链监控 - 支持 SPL 代币和 DeFi"""
     
-    # 缓存 Jupiter 代币列表
     _token_list_cache: Optional[Dict[str, dict]] = None
     _cache_time: Optional[datetime] = None
     
-    # 已知的 DeFi/质押代币
     DEFI_TOKENS = {
-        # Marinade
         "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So": ("mSOL", "Marinade Staked SOL", 9, "Marinade", "staking"),
-        # Jito
         "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn": ("JitoSOL", "Jito Staked SOL", 9, "Jito", "staking"),
-        # Jupiter
         "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v": ("jupSOL", "Jupiter Staked SOL", 9, "Jupiter", "staking"),
-        # BlazeStake  
         "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1": ("bSOL", "BlazeStake Staked SOL", 9, "BlazeStake", "staking"),
-        # Sanctum
         "5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm": ("INF", "Sanctum Infinity", 9, "Sanctum", "staking"),
-        # Lido (Solana)
         "7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj": ("stSOL", "Lido Staked SOL", 9, "Lido", "staking"),
-        # Raydium LP tokens patterns - 这些需要特殊处理
     }
     
-    # DeFi 协议相关关键词
     LP_PATTERNS = ["LP", "AMM", "POOL", "Liquidity"]
     STAKE_PATTERNS = ["staked", "stSOL", "mSOL", "jitoSOL", "bSOL", "jupSOL"]
     
@@ -275,7 +350,6 @@ class SolanaMonitor(ChainMonitor):
         return "SOL"
     
     async def _load_token_list(self, session: aiohttp.ClientSession) -> Dict[str, dict]:
-        """加载并缓存 Jupiter 代币列表"""
         if (self._token_list_cache is not None and 
             self._cache_time is not None and
             (datetime.now() - self._cache_time).seconds < 3600):
@@ -286,37 +360,26 @@ class SolanaMonitor(ChainMonitor):
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
                 if response.status == 200:
                     tokens = await response.json()
-                    SolanaMonitor._token_list_cache = {
-                        t["address"]: t for t in tokens
-                    }
+                    SolanaMonitor._token_list_cache = {t["address"]: t for t in tokens}
                     SolanaMonitor._cache_time = datetime.now()
                     return SolanaMonitor._token_list_cache
         except Exception:
             pass
-        
         return {}
     
     def _classify_token(self, symbol: str, name: str, mint: str) -> str:
-        """分类代币类型"""
         upper_name = name.upper()
         upper_symbol = symbol.upper()
         
-        # 检查是否是 LP 代币
         if any(p in upper_name or p in upper_symbol for p in self.LP_PATTERNS):
             return "liquidity"
-        
-        # 检查是否是质押代币
         if any(p.lower() in symbol.lower() or p.lower() in name.lower() for p in self.STAKE_PATTERNS):
             return "staking"
-        
-        # 检查已知 DeFi 代币
         if mint in self.DEFI_TOKENS:
             return self.DEFI_TOKENS[mint][4]
-        
         return "token"
     
     async def get_balance(self, address: str) -> Tuple[float, List[TokenBalance], List[DeFiPosition]]:
-        """获取 SOL、SPL 代币和 DeFi 仓位"""
         rpc_url = self.config.get("rpc_url", "https://api.mainnet-beta.solana.com")
         tokens = []
         defi_positions = []
@@ -324,31 +387,18 @@ class SolanaMonitor(ChainMonitor):
         native_balance = 0.0
         
         async with aiohttp.ClientSession() as session:
-            # 加载代币列表
             token_list = await self._load_token_list(session)
             
-            # 获取 SOL 余额
-            payload = {
-                "jsonrpc": "2.0",
-                "method": "getBalance",
-                "params": [address],
-                "id": 1
-            }
-            
+            payload = {"jsonrpc": "2.0", "method": "getBalance", "params": [address], "id": 1}
             async with session.post(rpc_url, json=payload) as response:
                 data = await response.json()
                 if "result" in data:
                     native_balance = data["result"]["value"] / 1e9
             
-            # 获取所有 SPL 代币账户
             payload = {
                 "jsonrpc": "2.0",
                 "method": "getTokenAccountsByOwner",
-                "params": [
-                    address,
-                    {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
-                    {"encoding": "jsonParsed"}
-                ],
+                "params": [address, {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}, {"encoding": "jsonParsed"}],
                 "id": 2
             }
             
@@ -363,40 +413,24 @@ class SolanaMonitor(ChainMonitor):
                             
                             if balance > 0:
                                 mint = parsed["mint"]
-                                
-                                # 从缓存获取代币信息
                                 token_info = token_list.get(mint, {})
                                 symbol = token_info.get("symbol", mint[:8])
                                 name = token_info.get("name", "Unknown Token")
                                 
-                                # 检查是否是已知 DeFi 代币
                                 if mint in self.DEFI_TOKENS:
                                     symbol, name, _, protocol, pos_type = self.DEFI_TOKENS[mint]
-                                    token = TokenBalance(
-                                        symbol=symbol,
-                                        name=name,
-                                        balance=balance,
-                                        contract_address=mint,
-                                        decimals=int(token_amount["decimals"]),
-                                        token_type=pos_type
-                                    )
+                                    token = TokenBalance(symbol=symbol, name=name, balance=balance,
+                                                        contract_address=mint, decimals=int(token_amount["decimals"]),
+                                                        token_type=pos_type)
                                     key = f"{protocol}|{pos_type}"
                                     if key not in defi_by_protocol:
                                         defi_by_protocol[key] = []
                                     defi_by_protocol[key].append(token)
                                 else:
-                                    # 分类代币
                                     token_type = self._classify_token(symbol, name, mint)
-                                    
-                                    token = TokenBalance(
-                                        symbol=symbol,
-                                        name=name,
-                                        balance=balance,
-                                        contract_address=mint,
-                                        decimals=int(token_amount["decimals"]),
-                                        token_type=token_type
-                                    )
-                                    
+                                    token = TokenBalance(symbol=symbol, name=name, balance=balance,
+                                                        contract_address=mint, decimals=int(token_amount["decimals"]),
+                                                        token_type=token_type)
                                     if token_type in ["staking", "liquidity", "lending"]:
                                         key = f"Unknown|{token_type}"
                                         if key not in defi_by_protocol:
@@ -407,14 +441,9 @@ class SolanaMonitor(ChainMonitor):
                         except Exception:
                             continue
             
-            # 创建 DeFi 仓位
             for key, tokens_list in defi_by_protocol.items():
                 protocol, pos_type = key.split("|")
-                defi_positions.append(DeFiPosition(
-                    protocol=protocol,
-                    position_type=pos_type,
-                    tokens=tokens_list
-                ))
+                defi_positions.append(DeFiPosition(protocol=protocol, position_type=pos_type, tokens=tokens_list))
         
         return native_balance, tokens, defi_positions
 
@@ -431,7 +460,6 @@ class AptosMonitor(ChainMonitor):
         return "APT"
     
     async def get_balance(self, address: str) -> Tuple[float, List[TokenBalance], List[DeFiPosition]]:
-        """获取 APT 和所有代币余额"""
         api_url = self.config.get("api_url", "https://fullnode.mainnet.aptoslabs.com/v1")
         tokens = []
         defi_positions = []
@@ -459,11 +487,8 @@ class AptosMonitor(ChainMonitor):
                                         if value > 0:
                                             symbol = self._parse_coin_symbol(coin_type)
                                             tokens.append(TokenBalance(
-                                                symbol=symbol,
-                                                name=coin_type.split("::")[-1],
-                                                balance=value / 1e8,
-                                                contract_address=coin_type,
-                                                decimals=8
+                                                symbol=symbol, name=coin_type.split("::")[-1],
+                                                balance=value / 1e8, contract_address=coin_type, decimals=8
                                             ))
                                 except Exception:
                                     continue
@@ -473,7 +498,6 @@ class AptosMonitor(ChainMonitor):
         return native_balance, tokens, defi_positions
     
     def _parse_coin_symbol(self, coin_type: str) -> str:
-        """解析代币符号"""
         try:
             parts = coin_type.split("::")
             if len(parts) >= 3:
@@ -487,37 +511,19 @@ class PriceService:
     """价格服务"""
     
     COINGECKO_IDS = {
-        "ETH": "ethereum",
+        "ETH": "ethereum", "WETH": "ethereum",
         "SOL": "solana",
         "APT": "aptos",
-        "USDT": "tether",
-        "USDC": "usd-coin",
-        "DAI": "dai",
-        "WBTC": "wrapped-bitcoin",
-        "LINK": "chainlink",
-        "UNI": "uniswap",
-        "MATIC": "matic-network",
-        "SHIB": "shiba-inu",
-        "PEPE": "pepe",
-        "WETH": "weth",
-        "AAVE": "aave",
-        "JUP": "jupiter-exchange-solana",
-        "RAY": "raydium",
-        "BONK": "bonk",
-        "WIF": "dogwifcoin",
-        "JTO": "jito-governance-token",
-        "PYTH": "pyth-network",
-        # Staking derivatives (价格接近原生代币)
-        "stETH": "staked-ether",
-        "wstETH": "wrapped-steth",
-        "rETH": "rocket-pool-eth",
-        "cbETH": "coinbase-wrapped-staked-eth",
-        "frxETH": "frax-ether",
-        "sfrxETH": "staked-frax-ether",
-        "mSOL": "msol",
-        "JitoSOL": "jito-staked-sol",
-        "bSOL": "blazestake-staked-sol",
-        "stSOL": "lido-staked-sol",
+        "USDT": "tether", "USDC": "usd-coin", "DAI": "dai",
+        "WBTC": "wrapped-bitcoin", "BTC": "bitcoin",
+        "LINK": "chainlink", "UNI": "uniswap", "AAVE": "aave",
+        "MATIC": "matic-network", "SHIB": "shiba-inu", "PEPE": "pepe",
+        "stETH": "staked-ether", "wstETH": "wrapped-steth",
+        "rETH": "rocket-pool-eth", "cbETH": "coinbase-wrapped-staked-eth",
+        "frxETH": "frax-ether", "sfrxETH": "staked-frax-ether",
+        "eETH": "ether-fi-staked-eth", "weETH": "wrapped-eeth",
+        "mSOL": "msol", "JitoSOL": "jito-staked-sol",
+        "bSOL": "blazestake-staked-sol", "stSOL": "lido-staked-sol",
     }
     
     def __init__(self):
@@ -525,7 +531,6 @@ class PriceService:
         self.last_update: Optional[datetime] = None
     
     async def update_prices(self) -> Dict[str, float]:
-        """更新价格"""
         ids = ",".join(set(self.COINGECKO_IDS.values()))
         url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
         
@@ -544,42 +549,9 @@ class PriceService:
         return self.prices
     
     def get_price(self, symbol: str) -> Optional[float]:
-        """获取价格"""
         if symbol.upper() in ["USDT", "USDC", "DAI", "BUSD", "TUSD"]:
             return 1.0
         return self.prices.get(symbol) or self.prices.get(symbol.upper())
-
-
-class NotificationService:
-    """通知服务"""
-    
-    def __init__(self, config: dict):
-        self.config = config
-    
-    async def notify(self, message: str):
-        """发送通知"""
-        # Telegram
-        tg = self.config.get("telegram", {})
-        if tg.get("enabled"):
-            try:
-                url = f"https://api.telegram.org/bot{tg['bot_token']}/sendMessage"
-                async with aiohttp.ClientSession() as session:
-                    await session.post(url, json={
-                        "chat_id": tg["chat_id"],
-                        "text": message,
-                        "parse_mode": "HTML"
-                    })
-            except Exception:
-                pass
-        
-        # Discord
-        dc = self.config.get("discord", {})
-        if dc.get("enabled"):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    await session.post(dc["webhook_url"], json={"content": message})
-            except Exception:
-                pass
 
 
 class WalletMonitor:
@@ -589,9 +561,6 @@ class WalletMonitor:
         self.config = self._load_config(config_path)
         self.monitors: Dict[str, ChainMonitor] = {}
         self.price_service = PriceService()
-        self.notification_service = NotificationService(
-            self.config.get("notifications", {})
-        )
         self._init_monitors()
     
     def _load_config(self, config_path: str) -> dict:
@@ -610,7 +579,6 @@ class WalletMonitor:
             self.monitors["aptos"] = AptosMonitor(self.config["aptos"])
     
     async def check_balance(self, chain: str, wallet: dict) -> Optional[WalletBalance]:
-        """检查钱包余额"""
         monitor = self.monitors.get(chain)
         if not monitor:
             return None
@@ -620,20 +588,49 @@ class WalletMonitor:
             price = self.price_service.get_price(monitor.symbol)
             native_usd = native_balance * price if price else None
             
-            # 计算代币和 DeFi 仓位的 USD 价值
+            # 计算代币 USD 价值
             for token in tokens:
                 token_price = self.price_service.get_price(token.symbol)
                 if token_price:
                     token.usd_value = token.balance * token_price
             
+            # 计算 DeFi 仓位 USD 价值
             for position in defi_positions:
                 total = 0.0
-                for token in position.tokens:
-                    token_price = self.price_service.get_price(token.symbol)
-                    if token_price:
-                        token.usd_value = token.balance * token_price
-                        total += token.usd_value
-                position.total_usd_value = total if total > 0 else None
+                
+                # 如果有借贷详情，计算详细价值
+                if position.lending_details:
+                    ld = position.lending_details
+                    
+                    # 计算抵押品价值
+                    for token in ld.supplied:
+                        token_price = self.price_service.get_price(token.symbol)
+                        if token_price:
+                            token.usd_value = token.balance * token_price
+                            ld.total_supplied_usd += token.usd_value
+                    
+                    # 计算债务价值
+                    for token in ld.borrowed:
+                        token_price = self.price_service.get_price(token.symbol)
+                        if token_price:
+                            token.usd_value = token.balance * token_price
+                            ld.total_borrowed_usd += token.usd_value
+                    
+                    # 计算净值
+                    ld.net_worth_usd = ld.total_supplied_usd - ld.total_borrowed_usd
+                    
+                    # 计算健康因子 (简化计算，假设清算阈值 80%)
+                    if ld.total_borrowed_usd > 0:
+                        ld.health_factor = (ld.total_supplied_usd * 0.8) / ld.total_borrowed_usd
+                    
+                    position.total_usd_value = ld.net_worth_usd
+                else:
+                    for token in position.tokens:
+                        token_price = self.price_service.get_price(token.symbol)
+                        if token_price:
+                            token.usd_value = token.balance * token_price
+                            total += token.usd_value
+                    position.total_usd_value = total if total > 0 else None
             
             return WalletBalance(
                 chain=monitor.chain_name,
@@ -651,7 +648,6 @@ class WalletMonitor:
             return None
     
     async def check_all_balances(self) -> List[WalletBalance]:
-        """检查所有钱包"""
         tasks = []
         for chain in self.monitors:
             wallets = self.config.get(chain, {}).get("wallets", [])
@@ -662,7 +658,6 @@ class WalletMonitor:
         return [b for b in balances if b is not None]
     
     def _format_number(self, num: float) -> str:
-        """格式化数字"""
         if num >= 1_000_000:
             return f"{num:,.0f}"
         elif num >= 1:
@@ -671,10 +666,8 @@ class WalletMonitor:
             return f"{num:,.6f}"
     
     def _format_balance(self, balance: WalletBalance) -> str:
-        """格式化输出"""
         lines = []
         
-        # 钱包标题
         lines.append(f"\n  📍 [{balance.chain}] {balance.name}")
         
         # 原生代币
@@ -686,34 +679,59 @@ class WalletMonitor:
             lines.append(f"     │")
             lines.append(f"     ├─ 🪙 代币:")
             sorted_tokens = sorted(balance.tokens, key=lambda t: t.usd_value or 0, reverse=True)
-            for token in sorted_tokens[:20]:  # 只显示前20个
+            for token in sorted_tokens[:15]:
                 usd = f" (${token.usd_value:,.2f})" if token.usd_value else ""
                 lines.append(f"     │  └─ {self._format_number(token.balance)} {token.symbol}{usd}")
-            if len(balance.tokens) > 20:
-                lines.append(f"     │  └─ ... 还有 {len(balance.tokens) - 20} 个代币")
+            if len(balance.tokens) > 15:
+                lines.append(f"     │  └─ ... 还有 {len(balance.tokens) - 15} 个代币")
         
         # DeFi 仓位
         if balance.defi_positions:
             lines.append(f"     │")
             lines.append(f"     └─ 🏦 DeFi 仓位:")
+            
             for pos in balance.defi_positions:
-                type_emoji = {
-                    "staking": "🥩",
-                    "lending": "🏛️",
-                    "liquidity": "💧",
-                    "farming": "🌾"
-                }.get(pos.position_type, "📊")
-                
-                usd = f" (${pos.total_usd_value:,.2f})" if pos.total_usd_value else ""
-                lines.append(f"        ├─ {type_emoji} {pos.protocol} [{pos.position_type}]{usd}")
-                for token in pos.tokens:
-                    t_usd = f" (${token.usd_value:,.2f})" if token.usd_value else ""
-                    lines.append(f"        │  └─ {self._format_number(token.balance)} {token.symbol}{t_usd}")
+                # 借贷协议特殊处理
+                if pos.lending_details:
+                    ld = pos.lending_details
+                    lines.append(f"        │")
+                    lines.append(f"        ├─ 🏛️ {pos.protocol} [借贷]")
+                    
+                    # 抵押品
+                    if ld.supplied:
+                        lines.append(f"        │  ├─ 💎 抵押品 (Collateral): ${ld.total_supplied_usd:,.2f}")
+                        for token in ld.supplied:
+                            usd = f" (${token.usd_value:,.2f})" if token.usd_value else ""
+                            lines.append(f"        │  │  └─ {self._format_number(token.balance)} {token.symbol}{usd}")
+                    
+                    # 债务
+                    if ld.borrowed:
+                        lines.append(f"        │  ├─ 💸 债务 (Debt): ${ld.total_borrowed_usd:,.2f}")
+                        for token in ld.borrowed:
+                            usd = f" (${token.usd_value:,.2f})" if token.usd_value else ""
+                            lines.append(f"        │  │  └─ {self._format_number(token.balance)} {token.symbol}{usd}")
+                    
+                    # 净值和健康因子
+                    lines.append(f"        │  ├─ 📊 净值: ${ld.net_worth_usd:,.2f}")
+                    if ld.health_factor:
+                        hf_emoji = "🟢" if ld.health_factor > 1.5 else "🟡" if ld.health_factor > 1.2 else "🔴"
+                        lines.append(f"        │  └─ {hf_emoji} 健康因子: {ld.health_factor:.2f}")
+                else:
+                    # 其他 DeFi 仓位
+                    type_emoji = {
+                        "staking": "🥩", "lending": "🏛️",
+                        "liquidity": "💧", "farming": "🌾"
+                    }.get(pos.position_type, "📊")
+                    
+                    usd = f" (${pos.total_usd_value:,.2f})" if pos.total_usd_value else ""
+                    lines.append(f"        ├─ {type_emoji} {pos.protocol} [{pos.position_type}]{usd}")
+                    for token in pos.tokens:
+                        t_usd = f" (${token.usd_value:,.2f})" if token.usd_value else ""
+                        lines.append(f"        │  └─ {self._format_number(token.balance)} {token.symbol}{t_usd}")
         
         return "\n".join(lines)
     
     async def run_once(self) -> List[WalletBalance]:
-        """运行一次检查"""
         print(f"\n{'='*70}")
         print(f"⏰ 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*70}")
@@ -721,11 +739,12 @@ class WalletMonitor:
         print("📈 获取代币价格...")
         await self.price_service.update_prices()
         
-        print("🔍 查询钱包余额 (包括 DeFi 仓位)...\n")
+        print("🔍 查询钱包余额 (包括 DeFi 借贷详情)...\n")
         balances = await self.check_all_balances()
         
         total_usd = 0.0
         total_defi = 0.0
+        total_debt = 0.0
         
         for balance in balances:
             print(self._format_balance(balance))
@@ -736,22 +755,27 @@ class WalletMonitor:
                 if token.usd_value:
                     total_usd += token.usd_value
             for pos in balance.defi_positions:
-                if pos.total_usd_value:
+                if pos.lending_details:
+                    total_usd += pos.lending_details.net_worth_usd
+                    total_defi += pos.lending_details.total_supplied_usd
+                    total_debt += pos.lending_details.total_borrowed_usd
+                elif pos.total_usd_value:
                     total_usd += pos.total_usd_value
                     total_defi += pos.total_usd_value
         
         print(f"\n{'─'*70}")
-        print(f"💰 总资产价值: ${total_usd:,.2f} USD")
+        print(f"💰 总资产净值: ${total_usd:,.2f} USD")
         if total_defi > 0:
-            print(f"🏦 其中 DeFi 仓位: ${total_defi:,.2f} USD")
+            print(f"🏦 DeFi 存入: ${total_defi:,.2f} USD")
+        if total_debt > 0:
+            print(f"💸 DeFi 债务: ${total_debt:,.2f} USD")
         print(f"{'='*70}")
         
         return balances
     
     async def run(self):
-        """持续运行"""
         interval = self.config.get("monitor_interval", 60)
-        print("🚀 钱包余额监控启动 (含 DeFi 仓位)")
+        print("🚀 钱包余额监控启动 (含 DeFi 借贷详情)")
         print(f"📊 监控链: {', '.join(self.monitors.keys())}")
         print(f"⏱️  间隔: {interval} 秒")
         
@@ -765,7 +789,7 @@ class WalletMonitor:
 
 async def main():
     import argparse
-    parser = argparse.ArgumentParser(description="多链钱包监控 (含 DeFi)")
+    parser = argparse.ArgumentParser(description="多链钱包监控 (含 DeFi 借贷详情)")
     parser.add_argument("-c", "--config", default="config.yaml")
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
