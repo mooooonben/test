@@ -126,9 +126,13 @@ class EthereumMonitor(ChainMonitor):
         # Frax
         "0x5E8422345238F34275888049021821E8E08CAa1f": ("frxETH", "Frax Ether", 18, "Frax", "staking"),
         "0xac3E018457B222d93114458476f3E3416Abbe38F": ("sfrxETH", "Staked Frax Ether", 18, "Frax", "staking"),
-        # EtherFi
-        "0xEC53bF9167f50cDEB3Ae105f56099aaaB9061F83": ("eETH", "ether.fi Staked ETH", 18, "EtherFi", "staking"),
-        "0xFe0c30065B384F05761f15d0CC899D4F9F9Cc0eB": ("weETH", "Wrapped eETH", 18, "EtherFi", "staking"),
+        # EtherFi (正确地址)
+        "0x35fA164735182de50811E8e2E824cFb9B6118ac2": ("eETH", "ether.fi Staked ETH", 18, "EtherFi", "staking"),
+        "0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee": ("weETH", "Wrapped eETH", 18, "EtherFi", "staking"),
+        # EigenLayer
+        "0xec53bF9167f50cDEB3Ae105f56099aaaB9061F83": ("EIGEN", "EigenLayer", 18, "EigenLayer", "staking"),
+        # ETHFI 治理代币
+        "0xFe0c30065B384F05761f15d0CC899D4F9F9Cc0eB": ("ETHFI", "ether.fi Governance", 18, "EtherFi", "token"),
         # Curve LP
         "0x06325440D014e39736583c165C2963BA99fAf14E": ("steCRV", "Curve stETH/ETH LP", 18, "Curve", "liquidity"),
         # Convex
@@ -530,6 +534,7 @@ class PriceService:
         "rETH": "rocket-pool-eth", "cbETH": "coinbase-wrapped-staked-eth",
         "frxETH": "frax-ether", "sfrxETH": "staked-frax-ether",
         "eETH": "ether-fi-staked-eth", "weETH": "wrapped-eeth",
+        "EIGEN": "eigenlayer", "ETHFI": "ether-fi",
         "mSOL": "msol", "JitoSOL": "jito-staked-sol",
         "bSOL": "blazestake-staked-sol", "stSOL": "lido-staked-sol",
     }
