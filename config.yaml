@@ -1,0 +1,54 @@
+# 钱包余额监控配置文件
+
+# 监控间隔（秒）
+monitor_interval: 60
+
+# 余额变化提醒阈值（百分比）
+alert_threshold_percent: 5
+
+# Ethereum 配置
+ethereum:
+  # RPC 节点 (可以使用 Infura, Alchemy 等)
+  # 免费公共节点示例，生产环境建议使用自己的 API Key
+  rpc_url: "https://eth.llamarpc.com"
+  # 要监控的钱包地址列表
+  wallets:
+    - address: "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"  # Vitalik 示例地址
+      name: "ETH钱包1"
+    # - address: "你的钱包地址"
+    #   name: "我的ETH钱包"
+
+# Solana 配置
+solana:
+  # RPC 节点
+  rpc_url: "https://api.mainnet-beta.solana.com"
+  # 要监控的钱包地址列表
+  wallets:
+    - address: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"  # 示例地址
+      name: "SOL钱包1"
+    # - address: "你的钱包地址"
+    #   name: "我的SOL钱包"
+
+# Aptos 配置
+aptos:
+  # API 节点
+  api_url: "https://fullnode.mainnet.aptoslabs.com/v1"
+  # 要监控的钱包地址列表
+  wallets:
+    - address: "0x1"  # 示例地址
+      name: "APT钱包1"
+    # - address: "你的钱包地址"
+    #   name: "我的APT钱包"
+
+# 通知配置（可选）
+notifications:
+  # Telegram 通知
+  telegram:
+    enabled: false
+    bot_token: "YOUR_BOT_TOKEN"
+    chat_id: "YOUR_CHAT_ID"
+  
+  # Discord Webhook 通知
+  discord:
+    enabled: false
+    webhook_url: "YOUR_DISCORD_WEBHOOK_URL"
