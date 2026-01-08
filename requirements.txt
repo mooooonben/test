@@ -8,3 +8,14 @@ pyyaml>=6.0.1
 
 # 可选: 更好的终端输出
 rich>=13.7.0
+
+# ========== Web 仪表盘依赖 ==========
+
+# FastAPI Web 框架
+fastapi>=0.109.0
+
+# ASGI 服务器
+uvicorn>=0.27.0
+
+# 数据验证
+pydantic>=2.5.0

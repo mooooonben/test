@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔍 钱包监控仪表盘</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0f0f23;
+            --bg-secondary: #1a1a2e;
+            --bg-card: #16213e;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0a0;
+            --accent-blue: #4facfe;
+            --accent-purple: #7c3aed;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --gradient-1: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-2: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --gradient-3: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        }
+
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 20px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            background: var(--gradient-2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .status-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .status-badge.updating {
+            background: rgba(79, 172, 254, 0.2);
+            color: var(--accent-blue);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: var(--gradient-2);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(79, 172, 254, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Summary Cards */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .summary-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .summary-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+        }
+
+        .summary-card.total::before { background: var(--gradient-2); }
+        .summary-card.defi::before { background: var(--gradient-3); }
+        .summary-card.debt::before { background: linear-gradient(135deg, #ef4444, #f97316); }
+        .summary-card.net::before { background: var(--gradient-1); }
+
+        .summary-card .label {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .summary-card .value {
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        .summary-card .icon {
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 48px;
+            opacity: 0.2;
+        }
+
+        /* Charts Section */
+        .charts-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 900px) {
+            .charts-section {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .chart-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 24px;
+        }
+
+        .chart-card h3 {
+            margin-bottom: 20px;
+            font-size: 18px;
+            color: var(--text-secondary);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 250px;
+        }
+
+        /* Wallet Cards */
+        .wallets-section h2 {
+            font-size: 22px;
+            margin-bottom: 20px;
+            color: var(--text-secondary);
+        }
+
+        .wallet-grid {
+            display: grid;
+            gap: 20px;
+        }
+
+        .wallet-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 24px;
+            transition: transform 0.3s ease;
+        }
+
+        .wallet-card:hover {
+            transform: translateY(-4px);
+        }
+
+        .wallet-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        .wallet-info h3 {
+            font-size: 18px;
+            margin-bottom: 4px;
+        }
+
+        .wallet-info .chain-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            background: rgba(79, 172, 254, 0.2);
+            color: var(--accent-blue);
+        }
+
+        .wallet-info .chain-badge.ethereum { background: rgba(98, 126, 234, 0.2); color: #627eea; }
+        .wallet-info .chain-badge.arbitrum { background: rgba(40, 160, 240, 0.2); color: #28a0f0; }
+        .wallet-info .chain-badge.solana { background: rgba(153, 69, 255, 0.2); color: #9945ff; }
+        .wallet-info .chain-badge.aptos { background: rgba(34, 211, 238, 0.2); color: #22d3ee; }
+
+        .wallet-info .address {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+
+        .wallet-balance {
+            text-align: right;
+        }
+
+        .wallet-balance .usd {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .wallet-balance .native {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        /* Tokens & DeFi */
+        .wallet-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 700px) {
+            .wallet-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .section-title {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .token-list, .defi-list {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .token-item, .defi-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .token-item:last-child, .defi-item:last-child {
+            border-bottom: none;
+        }
+
+        .token-name {
+            font-weight: 500;
+        }
+
+        .token-balance {
+            text-align: right;
+        }
+
+        .token-balance .amount {
+            font-weight: 600;
+        }
+
+        .token-balance .usd {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* DeFi Position */
+        .defi-protocol {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .defi-protocol .icon {
+            font-size: 18px;
+        }
+
+        .defi-details {
+            margin-top: 8px;
+            padding-left: 26px;
+            font-size: 13px;
+        }
+
+        .defi-details .row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            color: var(--text-secondary);
+        }
+
+        .defi-details .row.collateral { color: var(--accent-green); }
+        .defi-details .row.debt { color: var(--accent-red); }
+        .defi-details .row.health { color: var(--accent-yellow); }
+
+        .health-factor {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .health-factor.safe { color: var(--accent-green); }
+        .health-factor.warning { color: var(--accent-yellow); }
+        .health-factor.danger { color: var(--accent-red); }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state .icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>🔍 钱包监控仪表盘</h1>
+            <div class="header-actions">
+                <span id="status-badge" class="status-badge">⏳ 等待加载</span>
+                <button id="refresh-btn" class="btn btn-primary" onclick="refreshData()">
+                    🔄 刷新数据
+                </button>
+            </div>
+        </header>
+
+        <!-- Summary Cards -->
+        <div class="summary-grid">
+            <div class="summary-card total">
+                <div class="label">💰 总资产净值</div>
+                <div class="value" id="total-value">$0.00</div>
+                <div class="icon">💎</div>
+            </div>
+            <div class="summary-card defi">
+                <div class="label">🏦 DeFi 存入</div>
+                <div class="value" id="defi-value">$0.00</div>
+                <div class="icon">🏛️</div>
+            </div>
+            <div class="summary-card debt">
+                <div class="label">💸 DeFi 债务</div>
+                <div class="value" id="debt-value">$0.00</div>
+                <div class="icon">📉</div>
+            </div>
+            <div class="summary-card net">
+                <div class="label">📊 钱包数量</div>
+                <div class="value" id="wallet-count">0</div>
+                <div class="icon">👛</div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-section">
+            <div class="chart-card">
+                <h3>📊 资产分布 (按链)</h3>
+                <div class="chart-container">
+                    <canvas id="chainChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-card">
+                <h3>📈 历史趋势</h3>
+                <div class="chart-container">
+                    <canvas id="historyChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Wallets -->
+        <div class="wallets-section">
+            <h2>👛 钱包详情</h2>
+            <div id="wallet-grid" class="wallet-grid">
+                <div class="loading">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Last updated: <span id="last-updated">-</span></p>
+        </footer>
+    </div>
+
+    <script>
+        // ========== 全局状态 ==========
+        let chainChart = null;
+        let historyChart = null;
+        let isUpdating = false;
+
+        // ========== API 调用 ==========
+        async function fetchSummary() {
+            try {
+                const res = await fetch('/api/summary');
+                if (!res.ok) throw new Error('No data');
+                return await res.json();
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function fetchWallets() {
+            try {
+                const res = await fetch('/api/wallets');
+                if (!res.ok) throw new Error('No data');
+                return await res.json();
+            } catch (e) {
+                return [];
+            }
+        }
+
+        async function fetchHistory() {
+            try {
+                const res = await fetch('/api/history?days=7');
+                return await res.json();
+            } catch (e) {
+                return [];
+            }
+        }
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                return await res.json();
+            } catch (e) {
+                return { is_updating: false };
+            }
+        }
+
+        async function refreshData() {
+            if (isUpdating) return;
+            
+            const btn = document.getElementById('refresh-btn');
+            const badge = document.getElementById('status-badge');
+            
+            btn.disabled = true;
+            badge.className = 'status-badge updating';
+            badge.textContent = '🔄 更新中...';
+            isUpdating = true;
+            
+            try {
+                await fetch('/api/refresh', { method: 'POST' });
+                
+                // 轮询检查状态
+                let attempts = 0;
+                while (attempts < 60) {
+                    await new Promise(r => setTimeout(r, 2000));
+                    const status = await fetchStatus();
+                    if (!status.is_updating) break;
+                    attempts++;
+                }
+                
+                await loadData();
+                
+                badge.className = 'status-badge';
+                badge.textContent = '✅ 更新完成';
+                
+            } catch (e) {
+                badge.className = 'status-badge';
+                badge.textContent = '❌ 更新失败';
+            }
+            
+            btn.disabled = false;
+            isUpdating = false;
+        }
+
+        // ========== 渲染函数 ==========
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(2) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(2) + 'K';
+            if (num >= 1) return num.toFixed(2);
+            return num.toFixed(6);
+        }
+
+        function formatUSD(num) {
+            return '$' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function updateSummary(summary) {
+            if (!summary) return;
+            
+            document.getElementById('total-value').textContent = formatUSD(summary.total_usd_value);
+            document.getElementById('defi-value').textContent = formatUSD(summary.total_defi_value);
+            document.getElementById('debt-value').textContent = formatUSD(summary.total_debt_value);
+            document.getElementById('last-updated').textContent = new Date(summary.last_updated).toLocaleString('zh-CN');
+        }
+
+        function updateChainChart(summary) {
+            if (!summary || !summary.chains) return;
+            
+            const ctx = document.getElementById('chainChart').getContext('2d');
+            const labels = Object.keys(summary.chains);
+            const data = Object.values(summary.chains);
+            const colors = ['#627eea', '#28a0f0', '#9945ff', '#22d3ee', '#f59e0b', '#10b981'];
+            
+            if (chainChart) chainChart.destroy();
+            
+            chainChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: colors.slice(0, labels.length),
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { color: '#a0a0a0' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateHistoryChart(history) {
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            
+            if (historyChart) historyChart.destroy();
+            
+            const labels = history.map(h => new Date(h.timestamp).toLocaleDateString('zh-CN'));
+            const data = history.map(h => h.total_usd);
+            
+            historyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '总资产 (USD)',
+                        data: data,
+                        borderColor: '#4facfe',
+                        backgroundColor: 'rgba(79, 172, 254, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: { 
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#a0a0a0' }
+                        },
+                        y: { 
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { 
+                                color: '#a0a0a0',
+                                callback: v => '$' + (v/1000).toFixed(0) + 'K'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderWallets(wallets) {
+            const grid = document.getElementById('wallet-grid');
+            document.getElementById('wallet-count').textContent = wallets.length;
+            
+            if (wallets.length === 0) {
+                grid.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">📭</div>
+                        <p>暂无钱包数据</p>
+                        <p>点击"刷新数据"按钮获取最新余额</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            grid.innerHTML = wallets.map(wallet => {
+                const chainClass = wallet.chain.toLowerCase();
+                const totalUsd = calculateWalletTotal(wallet);
+                
+                return `
+                    <div class="wallet-card">
+                        <div class="wallet-header">
+                            <div class="wallet-info">
+                                <h3>${wallet.name}</h3>
+                                <span class="chain-badge ${chainClass}">${wallet.chain}</span>
+                                <div class="address">${wallet.address.slice(0, 10)}...${wallet.address.slice(-8)}</div>
+                            </div>
+                            <div class="wallet-balance">
+                                <div class="usd">${formatUSD(totalUsd)}</div>
+                                <div class="native">${formatNumber(wallet.native_balance)} ${wallet.native_symbol}</div>
+                            </div>
+                        </div>
+                        <div class="wallet-content">
+                            ${renderTokens(wallet.tokens)}
+                            ${renderDeFi(wallet.defi_positions)}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function calculateWalletTotal(wallet) {
+            let total = wallet.native_usd_value || 0;
+            wallet.tokens.forEach(t => total += t.usd_value || 0);
+            wallet.defi_positions.forEach(p => {
+                if (p.net_worth_usd !== null) {
+                    total += p.net_worth_usd;
+                } else if (p.total_usd_value) {
+                    total += p.total_usd_value;
+                }
+            });
+            return total;
+        }
+
+        function renderTokens(tokens) {
+            if (!tokens || tokens.length === 0) return '';
+            
+            const visibleTokens = tokens.slice(0, 5);
+            const hasMore = tokens.length > 5;
+            
+            return `
+                <div class="tokens-section">
+                    <div class="section-title">🪙 代币</div>
+                    <div class="token-list">
+                        ${visibleTokens.map(t => `
+                            <div class="token-item">
+                                <div class="token-name">${t.symbol}</div>
+                                <div class="token-balance">
+                                    <div class="amount">${formatNumber(t.balance)}</div>
+                                    ${t.usd_value ? `<div class="usd">${formatUSD(t.usd_value)}</div>` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                        ${hasMore ? `<div class="token-item"><div class="token-name" style="color: var(--text-secondary)">...还有 ${tokens.length - 5} 个代币</div></div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderDeFi(positions) {
+            if (!positions || positions.length === 0) return '';
+            
+            return `
+                <div class="defi-section">
+                    <div class="section-title">🏦 DeFi 仓位</div>
+                    <div class="defi-list">
+                        ${positions.map(p => renderDeFiPosition(p)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderDeFiPosition(pos) {
+            const icon = {
+                'staking': '🥩',
+                'lending': '🏛️',
+                'liquidity': '💧',
+                'yield': '📈',
+                'farming': '🌾'
+            }[pos.position_type] || '📊';
+            
+            let details = '';
+            
+            // 借贷详情
+            if (pos.supplied && pos.supplied.length > 0) {
+                const suppliedTotal = pos.supplied.reduce((sum, t) => sum + (t.usd_value || 0), 0);
+                const borrowedTotal = pos.borrowed ? pos.borrowed.reduce((sum, t) => sum + (t.usd_value || 0), 0) : 0;
+                
+                details = `
+                    <div class="defi-details">
+                        <div class="row collateral">
+                            <span>💎 抵押品</span>
+                            <span>${formatUSD(suppliedTotal)}</span>
+                        </div>
+                        ${pos.borrowed && pos.borrowed.length > 0 ? `
+                            <div class="row debt">
+                                <span>💸 债务</span>
+                                <span>${formatUSD(borrowedTotal)}</span>
+                            </div>
+                        ` : ''}
+                        ${pos.health_factor ? `
+                            <div class="row health">
+                                <span>❤️ 健康因子</span>
+                                <span class="health-factor ${pos.health_factor > 1.5 ? 'safe' : pos.health_factor > 1.2 ? 'warning' : 'danger'}">
+                                    ${pos.health_factor.toFixed(2)}
+                                </span>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            } else {
+                // 普通 DeFi 仓位
+                details = `
+                    <div class="defi-details">
+                        ${pos.tokens.slice(0, 3).map(t => `
+                            <div class="row">
+                                <span>${t.symbol}</span>
+                                <span>${formatNumber(t.balance)} ${t.usd_value ? `(${formatUSD(t.usd_value)})` : ''}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            return `
+                <div class="defi-item">
+                    <div>
+                        <div class="defi-protocol">
+                            <span class="icon">${icon}</span>
+                            <strong>${pos.protocol}</strong>
+                            <span style="color: var(--text-secondary); font-size: 12px;">[${pos.position_type}]</span>
+                        </div>
+                        ${details}
+                    </div>
+                    ${pos.total_usd_value ? `<div class="token-balance"><div class="amount">${formatUSD(pos.total_usd_value)}</div></div>` : ''}
+                </div>
+            `;
+        }
+
+        // ========== 初始化 ==========
+        async function loadData() {
+            const [summary, wallets, history] = await Promise.all([
+                fetchSummary(),
+                fetchWallets(),
+                fetchHistory()
+            ]);
+            
+            updateSummary(summary);
+            updateChainChart(summary);
+            updateHistoryChart(history);
+            renderWallets(wallets);
+        }
+
+        // 页面加载时获取数据
+        document.addEventListener('DOMContentLoaded', loadData);
+        
+        // 每 5 分钟自动刷新
+        setInterval(loadData, 5 * 60 * 1000);
+    </script>
+</body>
+</html>
