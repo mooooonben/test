@@ -414,13 +414,38 @@ class SolanaMonitor(ChainMonitor):
     _cache_time: Optional[datetime] = None
     
     DEFI_TOKENS = {
+        # ========== 质押代币 ==========
         "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So": ("mSOL", "Marinade Staked SOL", 9, "Marinade", "staking"),
         "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn": ("JitoSOL", "Jito Staked SOL", 9, "Jito", "staking"),
         "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v": ("jupSOL", "Jupiter Staked SOL", 9, "Jupiter", "staking"),
         "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1": ("bSOL", "BlazeStake Staked SOL", 9, "BlazeStake", "staking"),
         "5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm": ("INF", "Sanctum Infinity", 9, "Sanctum", "staking"),
         "7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj": ("stSOL", "Lido Staked SOL", 9, "Lido", "staking"),
+        
+        # ========== Kamino 借贷代币 ==========
+        # Kamino kTokens (存款凭证)
+        "EgThPfNKmQCsoMm1DT2WLxFVvEdmfpziJX1xCCHPmhqp": ("kSOL", "Kamino SOL", 9, "Kamino", "lending"),
+        "8t7ctoXDJTbWMBavCdxpJLJGvkLJGkvQ5TYU7LwoEFw": ("kUSDC", "Kamino USDC", 6, "Kamino", "lending"),
+        "EriDZjuP6U9RNKepDJPQ3jjGJJn5v2H2B2uYqPEGsqUV": ("kUSDT", "Kamino USDT", 6, "Kamino", "lending"),
+        "9gwTegFJJErDpWJKjPfLr2g2zrE8yrzkqGKMvw5wSrNu": ("kjupSOL", "Kamino jupSOL", 9, "Kamino", "lending"),
+        "HcEKpLSaJSfHVNKyYS2vBEqpJBfB5zPwzJVxCnZjhx5d": ("kjitoSOL", "Kamino JitoSOL", 9, "Kamino", "lending"),
+        "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263": ("kBONK", "Kamino BONK", 5, "Kamino", "lending"),
+        
+        # ========== Jupiter 借贷/JLP ==========
+        "27G8MtK7VnYsCYA1RH4DrLqpzuqJzGQGG5tmfqr6QWXw": ("JLP", "Jupiter LP", 6, "Jupiter", "liquidity"),
+        
+        # ========== Marginfi 借贷 ==========
+        "SoLEao8wTzSfqhuou8rcYsVoLjthVmiXuEjzdNPMnCz": ("mfiSOL", "Marginfi SOL", 9, "Marginfi", "lending"),
+        
+        # ========== Solend 借贷 ==========
+        "8Lg7TowFuMQoGiTsLE6qV9x3czRgDmVy8f8Vv8KS4uW": ("cSOL", "Solend SOL", 9, "Solend", "lending"),
     }
+    
+    # Kamino 主市场 Program ID
+    KAMINO_PROGRAM_ID = "KLend2g3cP87ber41SJq1PqSXW3Mc1RRdLnMH7VPZ5M"
+    
+    # Jupiter Perpetuals Program
+    JUP_PERP_PROGRAM = "PERPHjGBqRHArX4DySjwM6UJHiR3sWAatqfdBS2qQJu"
     
     LP_PATTERNS = ["LP", "AMM", "POOL", "Liquidity"]
     STAKE_PATTERNS = ["staked", "stSOL", "mSOL", "jitoSOL", "bSOL", "jupSOL"]
@@ -463,11 +488,43 @@ class SolanaMonitor(ChainMonitor):
             return self.DEFI_TOKENS[mint][4]
         return "token"
     
+    async def get_kamino_positions(self, session: aiohttp.ClientSession, 
+                                     rpc_url: str, address: str) -> Optional[LendingPosition]:
+        """获取 Kamino 借贷仓位"""
+        try:
+            # 查询 Kamino obligation 账户
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "getProgramAccounts",
+                "params": [
+                    self.KAMINO_PROGRAM_ID,
+                    {
+                        "encoding": "jsonParsed",
+                        "filters": [
+                            {"memcmp": {"offset": 32, "bytes": address}}
+                        ]
+                    }
+                ],
+                "id": 1
+            }
+            
+            async with session.post(rpc_url, json=payload) as response:
+                data = await response.json()
+                # Kamino 的账户结构比较复杂，这里简化处理
+                # 实际使用中可能需要更详细的解析
+                
+        except Exception as e:
+            pass
+        
+        return None
+    
     async def get_balance(self, address: str) -> Tuple[float, List[TokenBalance], List[DeFiPosition]]:
         rpc_url = self.config.get("rpc_url", "https://api.mainnet-beta.solana.com")
         tokens = []
         defi_positions = []
         defi_by_protocol: Dict[str, List[TokenBalance]] = {}
+        kamino_supplied: List[TokenBalance] = []
+        kamino_borrowed: List[TokenBalance] = []
         native_balance = 0.0
         
         async with aiohttp.ClientSession() as session:
@@ -502,19 +559,35 @@ class SolanaMonitor(ChainMonitor):
                                 name = token_info.get("name", "Unknown Token")
                                 
                                 if mint in self.DEFI_TOKENS:
-                                    symbol, name, _, protocol, pos_type = self.DEFI_TOKENS[mint]
-                                    token = TokenBalance(symbol=symbol, name=name, balance=balance,
-                                                        contract_address=mint, decimals=int(token_amount["decimals"]),
-                                                        token_type=pos_type)
-                                    key = f"{protocol}|{pos_type}"
-                                    if key not in defi_by_protocol:
-                                        defi_by_protocol[key] = []
-                                    defi_by_protocol[key].append(token)
+                                    def_symbol, def_name, _, protocol, pos_type = self.DEFI_TOKENS[mint]
+                                    token = TokenBalance(
+                                        symbol=def_symbol, 
+                                        name=def_name, 
+                                        balance=balance,
+                                        contract_address=mint, 
+                                        decimals=int(token_amount["decimals"]),
+                                        token_type=pos_type
+                                    )
+                                    
+                                    # Kamino kTokens 特殊处理
+                                    if protocol == "Kamino" and def_symbol.startswith("k"):
+                                        kamino_supplied.append(token)
+                                    else:
+                                        key = f"{protocol}|{pos_type}"
+                                        if key not in defi_by_protocol:
+                                            defi_by_protocol[key] = []
+                                        defi_by_protocol[key].append(token)
                                 else:
                                     token_type = self._classify_token(symbol, name, mint)
-                                    token = TokenBalance(symbol=symbol, name=name, balance=balance,
-                                                        contract_address=mint, decimals=int(token_amount["decimals"]),
-                                                        token_type=token_type)
+                                    token = TokenBalance(
+                                        symbol=symbol, 
+                                        name=name, 
+                                        balance=balance,
+                                        contract_address=mint, 
+                                        decimals=int(token_amount["decimals"]),
+                                        token_type=token_type
+                                    )
+                                    
                                     if token_type in ["staking", "liquidity", "lending"]:
                                         key = f"Unknown|{token_type}"
                                         if key not in defi_by_protocol:
@@ -525,9 +598,28 @@ class SolanaMonitor(ChainMonitor):
                         except Exception:
                             continue
             
+            # 创建 DeFi 仓位
             for key, tokens_list in defi_by_protocol.items():
                 protocol, pos_type = key.split("|")
-                defi_positions.append(DeFiPosition(protocol=protocol, position_type=pos_type, tokens=tokens_list))
+                defi_positions.append(DeFiPosition(
+                    protocol=protocol, 
+                    position_type=pos_type, 
+                    tokens=tokens_list
+                ))
+            
+            # Kamino 借贷仓位
+            if kamino_supplied:
+                lending_details = LendingPosition(
+                    protocol="Kamino",
+                    supplied=kamino_supplied,
+                    borrowed=kamino_borrowed  # TODO: 需要从链上查询债务
+                )
+                defi_positions.append(DeFiPosition(
+                    protocol="Kamino",
+                    position_type="lending",
+                    tokens=kamino_supplied,
+                    lending_details=lending_details
+                ))
         
         return native_balance, tokens, defi_positions
 
@@ -807,6 +899,15 @@ class PriceService:
         "ARB": "arbitrum", "GMX": "gmx",
         "mSOL": "msol", "JitoSOL": "jito-staked-sol",
         "bSOL": "blazestake-staked-sol", "stSOL": "lido-staked-sol",
+        # Kamino kTokens (价格约等于底层资产)
+        "kSOL": "solana", "kjupSOL": "solana", "kjitoSOL": "solana",
+        "kUSDC": "usd-coin", "kUSDT": "tether",
+        "kBONK": "bonk",
+        # Jupiter
+        "JLP": "jupiter-perpetuals-liquidity-provider-token",
+        "JUP": "jupiter-exchange-solana",
+        # Marginfi
+        "mfiSOL": "solana",
     }
     
     def __init__(self):
