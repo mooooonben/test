@@ -179,9 +179,13 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时初始化
     init_db()
+    
+    # 优先使用 config.local.yaml，否则使用 config.yaml
+    config_file = "config.local.yaml" if Path("config.local.yaml").exists() else "config.yaml"
+    
     try:
-        state.monitor = WalletMonitor("config.yaml")
-        print("✅ 钱包监控器初始化成功")
+        state.monitor = WalletMonitor(config_file)
+        print(f"✅ 钱包监控器初始化成功 (配置: {config_file})")
         
         # 启动时立即更新一次
         asyncio.create_task(update_balances())
@@ -322,19 +326,28 @@ async def root():
     return HTMLResponse("<h1>钱包监控仪表盘</h1><p>请先创建 static/index.html</p>")
 
 
-@app.get("/api/summary", response_model=DashboardSummary)
+@app.get("/api/summary")
 async def get_summary():
     """获取资产汇总"""
     if state.summary is None:
-        raise HTTPException(status_code=404, detail="暂无数据，请先刷新")
+        # 返回空数据而不是 404
+        return DashboardSummary(
+            total_usd_value=0,
+            total_defi_value=0,
+            total_debt_value=0,
+            net_worth=0,
+            chains={},
+            last_updated=datetime.now().isoformat()
+        )
     return state.summary
 
 
-@app.get("/api/wallets", response_model=List[WalletResponse])
+@app.get("/api/wallets")
 async def get_wallets():
     """获取所有钱包余额"""
     if not state.last_balances:
-        raise HTTPException(status_code=404, detail="暂无数据，请先刷新")
+        # 返回空列表而不是 404
+        return []
     return [convert_wallet(w) for w in state.last_balances]
 
 
@@ -368,19 +381,29 @@ async def refresh_balances(background_tasks: BackgroundTasks):
 
 async def update_balances():
     """后台更新余额"""
-    if state.monitor is None or state.is_updating:
+    if state.monitor is None:
+        print("⚠️ 监控器未初始化，跳过更新")
+        return
+    
+    if state.is_updating:
+        print("⚠️ 正在更新中，跳过")
         return
     
     state.is_updating = True
     
     try:
         print("🔄 开始更新余额...")
+        print(f"   监控链: {list(state.monitor.monitors.keys())}")
         
         # 更新价格
+        print("   📈 获取价格...")
         await state.monitor.price_service.update_prices()
         
         # 获取余额
+        print("   🔍 查询余额...")
         balances = await state.monitor.check_all_balances()
+        
+        print(f"   📊 获取到 {len(balances)} 个钱包数据")
         
         state.last_balances = balances
         state.last_update = datetime.now()
@@ -397,7 +420,9 @@ async def update_balances():
         print(f"✅ 更新完成，总资产: ${state.summary.total_usd_value:,.2f}")
         
     except Exception as e:
+        import traceback
         print(f"❌ 更新失败: {e}")
+        traceback.print_exc()
     
     finally:
         state.is_updating = False
