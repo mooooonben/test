@@ -153,6 +153,27 @@ state = AppState()
 
 # ========== FastAPI 应用 ==========
 
+async def background_scheduler():
+    """后台定时更新任务"""
+    while True:
+        try:
+            # 等待配置的间隔时间
+            interval = 300  # 默认 5 分钟
+            if state.monitor and state.monitor.config:
+                interval = state.monitor.config.get("monitor_interval", 300)
+            
+            await asyncio.sleep(interval)
+            
+            # 执行更新
+            if state.monitor and not state.is_updating:
+                print(f"⏰ 定时更新触发 (间隔: {interval}秒)")
+                await update_balances()
+                
+        except Exception as e:
+            print(f"❌ 后台更新出错: {e}")
+            await asyncio.sleep(60)  # 出错后等待 1 分钟再试
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -161,12 +182,23 @@ async def lifespan(app: FastAPI):
     try:
         state.monitor = WalletMonitor("config.yaml")
         print("✅ 钱包监控器初始化成功")
+        
+        # 启动时立即更新一次
+        asyncio.create_task(update_balances())
+        
+        # 启动后台定时任务
+        scheduler_task = asyncio.create_task(background_scheduler())
+        print("⏰ 后台定时更新已启动")
+        
     except FileNotFoundError:
         print("⚠️ config.yaml 不存在，请先创建配置文件")
+        scheduler_task = None
     
     yield
     
     # 关闭时清理
+    if scheduler_task:
+        scheduler_task.cancel()
     print("👋 服务器关闭")
 
 
